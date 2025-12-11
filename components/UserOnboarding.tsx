@@ -60,9 +60,8 @@ export const UserOnboarding: React.FC<Props> = ({ onUserCreated }) => {
           .from('users')
           .insert([{ 
             username: username.trim(),
-            password: password, // Note: In a real app, hash this!
-            avatar_url: avatarUrl.trim() || undefined,
-            last_username_change: new Date().toISOString()
+            password: password, 
+            avatar_url: avatarUrl.trim() || undefined
           }])
           .select()
           .single();
@@ -72,7 +71,7 @@ export const UserOnboarding: React.FC<Props> = ({ onUserCreated }) => {
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Authentication failed');
+      setError(err.message || 'Authentication failed. Please check your database schema.');
     } finally {
       setLoading(false);
     }

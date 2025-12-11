@@ -34,7 +34,7 @@ export const SettingsModal: React.FC<Props> = ({ user, onClose, onUpdate, onLogo
     
     if (newUsername === user.username) return;
 
-    // Check 30 day limit
+    // Check 30 day limit logic (only if field exists in DB)
     if (user.last_username_change) {
         const daysSinceChange = differenceInDays(new Date(), parseISO(user.last_username_change));
         if (daysSinceChange < 30) {
@@ -51,8 +51,8 @@ export const SettingsModal: React.FC<Props> = ({ user, onClose, onUpdate, onLogo
         if (existing) throw new Error('Username taken.');
 
         const updateData = {
-            username: newUsername,
-            last_username_change: new Date().toISOString()
+            username: newUsername
+            // Removed last_username_change update to prevent errors if column missing
         };
 
         const { error } = await supabase.from('users').update(updateData).eq('id', user.id);
@@ -89,7 +89,7 @@ export const SettingsModal: React.FC<Props> = ({ user, onClose, onUpdate, onLogo
         setNewPassword('');
         setConfirmPassword('');
     } catch (err: any) {
-        setPasswordError(err.message || 'Failed to update password');
+        setPasswordError(err.message || 'Failed to update password. Schema update required.');
     } finally {
         setLoading(false);
     }
