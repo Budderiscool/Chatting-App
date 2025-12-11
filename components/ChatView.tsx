@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Channel, Message, User } from '../types';
 import { supabase } from '../supabaseClient';
-import { Hash, Plus, Gift, Sticker, Smile, Send } from 'lucide-react';
+import { Hash, Plus, Gift, Sticker, Smile, Send, MoreHorizontal } from 'lucide-react';
 import { format, isToday, isYesterday } from 'date-fns';
 
 interface Props {
@@ -95,119 +95,121 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser }) => {
 
   if (!channel) {
     return (
-      <div className="flex-1 bg-discord-dark flex flex-col items-center justify-center text-discord-textMuted">
-        <div className="bg-discord-darker p-4 rounded-full mb-4">
-             <Hash size={48} />
+      <div className="flex-1 bg-surface flex flex-col items-center justify-center text-textMuted">
+        <div className="w-20 h-20 bg-surfaceHighlight rounded-full flex items-center justify-center mb-6 shadow-xl">
+             <Hash size={40} className="text-textMuted/50" />
         </div>
-        <h3 className="text-lg font-bold text-discord-text mb-2">No Channel Selected</h3>
-        <p>Pick a channel from the sidebar to start chatting.</p>
+        <h3 className="text-2xl font-bold text-text mb-2">Welcome Back</h3>
+        <p>Select a channel to start messaging</p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 bg-discord-dark relative">
-      {/* Header */}
-      <div className="h-12 px-4 flex items-center border-b border-black/20 shadow-sm flex-shrink-0 z-10 bg-discord-dark">
-        <Hash className="text-discord-textMuted mr-2" size={24} />
-        <span className="font-bold text-white mr-4">{channel.name}</span>
-        {/* Placeholder for topic */}
-        <div className="w-[1px] h-6 bg-discord-textMuted/30 mx-2 hidden sm:block"></div>
-        <span className="text-discord-textMuted text-xs font-medium hidden sm:block truncate">This is the start of the #{channel.name} channel.</span>
+    <div className="flex-1 flex flex-col min-w-0 bg-surface relative">
+      {/* Floating Header */}
+      <div className="h-16 px-6 flex items-center justify-between border-b border-border bg-surfaceHighlight/30 backdrop-blur-sm z-10 shrink-0">
+        <div className="flex items-center">
+            <Hash className="text-textMuted mr-3" size={22} />
+            <span className="font-bold text-white text-lg mr-4 tracking-tight">{channel.name}</span>
+            <span className="text-textMuted text-sm font-medium px-3 py-1 bg-white/5 rounded-full hidden sm:block">
+                Chat Room
+            </span>
+        </div>
+        
+        {/* Header Actions */}
+        <div className="flex items-center gap-4 text-textMuted">
+            <MoreHorizontal className="hover:text-white cursor-pointer" />
+        </div>
       </div>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col px-4 pt-4">
+      <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col px-6 pt-6">
         
         {/* Welcome Channel Banner */}
-        <div className="mt-auto mb-6">
-            <div className="w-16 h-16 bg-discord-light rounded-full flex items-center justify-center mb-4">
-                <Hash size={40} className="text-white" />
+        <div className="mt-auto mb-8 text-center sm:text-left border-b border-border pb-8">
+            <div className="w-20 h-20 bg-primary/10 rounded-3xl flex items-center justify-center mb-4 mx-auto sm:mx-0">
+                <Hash size={40} className="text-primary" />
             </div>
-            <h1 className="text-3xl font-bold text-white mb-2">Welcome to #{channel.name}!</h1>
-            <p className="text-discord-textMuted text-lg">This is the start of the #{channel.name} channel.</p>
+            <h1 className="text-3xl font-extrabold text-white mb-2">Welcome to #{channel.name}</h1>
+            <p className="text-textMuted text-lg">This is the beginning of the legendary conversations in #{channel.name}.</p>
         </div>
 
+        <div className="flex flex-col gap-1 pb-4">
         {messages.map((msg, index) => {
            const prevMsg = messages[index - 1];
-           // Grouping logic: Same user and less than 5 minutes diff
            const isSequence = prevMsg && 
                               prevMsg.user_id === msg.user_id && 
                               (new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 5 * 60 * 1000);
+            
+           const isMe = msg.user_id === currentUser.id;
 
            return (
             <div 
                 key={msg.id} 
-                className={isSequence 
-                    ? "py-0.5 hover:bg-black/5 -mx-4 px-4 group flex items-start" 
-                    : "mt-[17px] hover:bg-black/5 -mx-4 px-4 py-0.5 group flex items-start"}
+                className={isSequence ? "mt-0.5 group flex items-start" : "mt-5 group flex items-start"}
             >
-              {isSequence ? (
-                // Compact Message Mode
-                <>
-                    <div className="w-[50px] flex-shrink-0 text-[10px] text-discord-textMuted opacity-0 group-hover:opacity-100 text-right select-none pr-3 pt-1 font-mono">
-                        {format(new Date(msg.created_at), 'h:mm aa')}
-                    </div>
-                    <p className="text-[#dbdee1] whitespace-pre-wrap leading-[1.375rem] flex-1 font-[400]">
-                        {msg.content}
-                    </p>
-                </>
-              ) : (
-                // Full Header Message Mode
-                <>
-                    <div className="w-[40px] h-[40px] rounded-full bg-discord-primary hover:bg-discord-primaryHover cursor-pointer flex-shrink-0 flex items-center justify-center text-white font-bold text-lg mt-0.5 transition-colors overflow-hidden">
-                        {msg.users?.username.substring(0, 1).toUpperCase()}
-                    </div>
-                    <div className="ml-4 flex-1 min-w-0">
-                        <div className="flex items-center mb-1">
-                            <span className="font-medium text-white hover:underline cursor-pointer mr-2">
-                                {msg.users?.username}
-                            </span>
-                            <span className="text-xs text-discord-textMuted font-medium ml-0.5">
-                                {formatMessageDate(msg.created_at)}
-                            </span>
-                        </div>
-                        <p className="text-[#dbdee1] whitespace-pre-wrap leading-[1.375rem] font-[400]">
-                            {msg.content}
-                        </p>
-                    </div>
-                </>
+              {!isSequence && (
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-purple-600 flex-shrink-0 flex items-center justify-center text-white font-bold text-sm shadow-lg mr-4 mt-0.5">
+                    {msg.users?.username.substring(0, 1).toUpperCase()}
+                </div>
               )}
+              
+              {isSequence && <div className="w-14 flex-shrink-0"></div>}
+
+              <div className="flex-1 min-w-0">
+                  {!isSequence && (
+                      <div className="flex items-center mb-1">
+                          <span className="font-bold text-white hover:underline cursor-pointer mr-2 text-[15px]">
+                              {msg.users?.username}
+                          </span>
+                          <span className="text-xs text-textMuted font-medium">
+                              {formatMessageDate(msg.created_at)}
+                          </span>
+                      </div>
+                  )}
+                  <p className={isMe ? "text-white/90 leading-relaxed" : "text-text/90 leading-relaxed"}>
+                      {msg.content}
+                  </p>
+              </div>
             </div>
            );
         })}
+        </div>
         <div ref={messagesEndRef} className="h-4" />
       </div>
 
-      {/* Input Area */}
-      <div className="px-4 pb-6 pt-0 flex-shrink-0 z-20 bg-discord-dark">
+      {/* Floating Input Area */}
+      <div className="p-6 pt-2 shrink-0 z-20">
         <form 
           onSubmit={handleSendMessage}
-          className="bg-discord-input rounded-lg px-4 py-2.5 flex items-center relative"
+          className="bg-surfaceHighlight rounded-full pl-4 pr-3 py-3 flex items-center relative shadow-lg border border-white/5 focus-within:border-primary/50 transition-colors"
         >
-          {/* Plus Button */}
-          <button type="button" className="text-discord-textMuted hover:text-discord-text mr-3 sticky-plus">
-            <div className="w-6 h-6 rounded-full bg-discord-textMuted flex items-center justify-center text-discord-darkest font-bold text-xs hover:text-white transition-colors">
-              <Plus size={16} strokeWidth={4} />
-            </div>
+          <button type="button" className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-textMuted hover:text-white transition-colors mr-3 shrink-0">
+            <Plus size={18} />
           </button>
 
           <input
             type="text"
-            className="flex-1 bg-transparent text-discord-text focus:outline-none placeholder-discord-textMuted/50 font-medium"
+            className="flex-1 bg-transparent text-text focus:outline-none placeholder-textMuted/50 font-medium"
             placeholder={`Message #${channel.name}`}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
           />
           
-          <div className="flex items-center space-x-3 ml-3 text-discord-textMuted">
-            <Gift className="hover:text-discord-text cursor-pointer" size={20} />
-            <Sticker className="hover:text-discord-text cursor-pointer" size={20} />
-            <Smile className="hover:text-discord-text cursor-pointer" size={20} />
-            {inputText.trim() && (
-                 <button type="submit" className="text-discord-primary hover:text-white transition-colors">
-                    <Send size={20} />
+          <div className="flex items-center gap-3 ml-3 text-textMuted">
+            <div className="hidden sm:flex gap-2">
+                <Gift className="hover:text-white cursor-pointer transition-colors p-1" size={28} />
+                <Sticker className="hover:text-white cursor-pointer transition-colors p-1" size={28} />
+                <Smile className="hover:text-white cursor-pointer transition-colors p-1" size={28} />
+            </div>
+            
+            {inputText.trim() ? (
+                 <button type="submit" className="w-10 h-10 rounded-full bg-primary hover:bg-primaryHover text-white flex items-center justify-center transition-all shadow-lg hover:scale-105">
+                    <Send size={18} className="ml-0.5" />
                  </button>
+            ) : (
+                <div className="w-10"></div>
             )}
           </div>
         </form>

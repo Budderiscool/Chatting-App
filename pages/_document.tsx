@@ -4,7 +4,7 @@ export default function Document() {
   return (
     <Html lang="en">
       <Head>
-        <title>Discord Clone</title>
+        <title>Chat App</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <script dangerouslySetInnerHTML={{
           __html: `
@@ -12,50 +12,44 @@ export default function Document() {
               theme: {
                 extend: {
                   colors: {
-                    discord: {
-                      darkest: '#1E1F22',  // Server list
-                      darker: '#2B2D31',   // Channel list & Members
-                      dark: '#313338',     // Chat background
-                      light: '#404249',    // Hover states
-                      input: '#383A40',    // Input background
-                      primary: '#5865F2',  // Blurple
-                      primaryHover: '#4752C4',
-                      green: '#23A559',
-                      red: '#DA373C',
-                      text: '#F2F3F5',     // Primary text
-                      textMuted: '#949BA4', // Secondary text
-                      divider: '#1E1F22'
-                    }
+                    background: '#09090b', // Zinc 950
+                    surface: '#18181b',    // Zinc 900
+                    surfaceHighlight: '#27272a', // Zinc 800
+                    primary: '#6366f1',    // Indigo 500
+                    primaryHover: '#4f46e5',
+                    text: '#f4f4f5',       // Zinc 100
+                    textMuted: '#a1a1aa',  // Zinc 400
+                    border: '#27272a',
                   },
                   borderRadius: {
-                    'discord': '16px',
-                    'discord-small': '4px'
+                    'xl': '1rem',
+                    '2xl': '1.5rem',
+                    '3xl': '2rem',
                   }
                 }
               }
             }
           `
         }} />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
         <style>{`
           body {
-            background-color: #313338;
-            color: #F2F3F5;
-            font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-            overflow: hidden; /* Prevent body scroll */
+            background-color: #09090b;
+            color: #f4f4f5;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            overflow: hidden;
           }
-          /* Custom Scrollbar */
+          /* Custom Scrollbar for the new soft look */
           ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-            background-color: #2B2D31;
+            width: 6px;
+            height: 6px;
           }
           ::-webkit-scrollbar-thumb {
-            background-color: #1A1B1E;
-            border-radius: 4px;
+            background-color: #3f3f46;
+            border-radius: 9999px;
           }
           ::-webkit-scrollbar-track {
-            background-color: #2B2D31;
+            background-color: transparent;
           }
         `}</style>
       </Head>

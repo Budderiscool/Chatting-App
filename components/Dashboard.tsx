@@ -7,6 +7,7 @@ import { ChatView } from './ChatView';
 import { MemberSidebar } from './MemberSidebar';
 import { CreateServerModal } from './CreateServerModal';
 import { CreateChannelModal } from './CreateChannelModal';
+import { Mic, Headphones, Settings, LogOut } from 'lucide-react';
 
 interface Props {
   currentUser: User;
@@ -72,7 +73,6 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
   };
 
   const ensureMembership = async (serverId: string) => {
-    // Check if member
     const { data } = await supabase
       .from('server_members')
       .select('*')
@@ -81,7 +81,6 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
       .single();
 
     if (!data) {
-      // Auto-join
       await supabase.from('server_members').insert({
         server_id: serverId,
         user_id: currentUser.id
@@ -90,16 +89,13 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
   };
 
   const handleServerCreated = (newServer: Server) => {
-    // Server subscription will catch it, but we can optimistically set it or select it
     setSelectedServer(newServer);
     setIsCreateServerOpen(false);
-    // Create default channel
     createDefaultChannel(newServer.id);
   };
 
   const createDefaultChannel = async (serverId: string) => {
     await supabase.from('channels').insert({ server_id: serverId, name: 'general' });
-    // Channel fetch will happen via subscription or refresh
     fetchChannels(serverId);
   };
 
@@ -110,36 +106,79 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-discord-dark">
-      {/* Server List */}
-      <ServerList 
-        servers={servers} 
-        selectedServerId={selectedServer?.id} 
-        onSelect={setSelectedServer}
-        onAddServer={() => setIsCreateServerOpen(true)}
-      />
-
-      {/* Channel Sidebar */}
-      <ChannelList 
-        server={selectedServer}
-        channels={channels}
-        selectedChannelId={selectedChannel?.id}
-        onSelect={setSelectedChannel}
-        onAddChannel={() => setIsCreateChannelOpen(true)}
-        currentUser={currentUser}
-      />
-
-      {/* Main Chat Area */}
-      <div className="flex flex-1 flex-row min-w-0">
-        <ChatView 
-          channel={selectedChannel} 
-          currentUser={currentUser}
-        />
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-background p-4 gap-4">
+      
+      {/* Top Workspace Area (Bento Box Layout) */}
+      <div className="flex flex-1 min-h-0 gap-4">
         
-        {/* Members List */}
+        {/* Left Panel: Channel List */}
+        <div className="w-72 bg-surface rounded-3xl border border-border shadow-2xl flex flex-col overflow-hidden">
+          <ChannelList 
+            server={selectedServer}
+            channels={channels}
+            selectedChannelId={selectedChannel?.id}
+            onSelect={setSelectedChannel}
+            onAddChannel={() => setIsCreateChannelOpen(true)}
+          />
+        </div>
+
+        {/* Center Panel: Chat */}
+        <div className="flex-1 bg-surface rounded-3xl border border-border shadow-2xl flex flex-col overflow-hidden relative">
+          <ChatView 
+            channel={selectedChannel} 
+            currentUser={currentUser}
+          />
+        </div>
+        
+        {/* Right Panel: Members (Hidden on small screens) */}
         {selectedServer && (
-          <MemberSidebar serverId={selectedServer.id} />
+          <div className="w-72 bg-surface rounded-3xl border border-border shadow-2xl hidden lg:flex flex-col overflow-hidden">
+            <MemberSidebar serverId={selectedServer.id} />
+          </div>
         )}
+      </div>
+
+      {/* Bottom Dock (Taskbar) */}
+      <div className="h-20 bg-surface/80 backdrop-blur-md rounded-3xl border border-white/5 flex items-center justify-between px-6 shadow-2xl z-50 shrink-0">
+        
+        {/* Dock: Server List */}
+        <div className="flex items-center gap-3 overflow-x-auto hide-scrollbar flex-1">
+          <ServerList 
+            servers={servers} 
+            selectedServerId={selectedServer?.id} 
+            onSelect={setSelectedServer}
+            onAddServer={() => setIsCreateServerOpen(true)}
+          />
+        </div>
+
+        {/* Dock: User Profile (Right Side) */}
+        <div className="flex items-center gap-4 pl-6 border-l border-white/10 ml-4 shrink-0">
+            <div className="flex items-center gap-3">
+                <div className="relative">
+                    <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-primary/20">
+                        {currentUser.username.substring(0, 1).toUpperCase()}
+                    </div>
+                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-surface rounded-full"></div>
+                </div>
+                <div className="hidden sm:block">
+                    <div className="text-white font-bold text-sm leading-tight">{currentUser.username}</div>
+                    <div className="text-textMuted text-xs leading-tight">#{currentUser.id.substring(0, 4)}</div>
+                </div>
+            </div>
+            
+            <div className="flex items-center gap-1">
+                <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors">
+                    <Mic size={18} />
+                </button>
+                <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors">
+                    <Headphones size={18} />
+                </button>
+                <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors">
+                    <Settings size={18} />
+                </button>
+            </div>
+        </div>
+
       </div>
 
       {/* Modals */}
