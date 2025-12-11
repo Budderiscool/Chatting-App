@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Server, Channel } from '../types';
+import { User, Server, Channel, Message } from '../types';
 import { supabase } from '../supabaseClient';
 import { ServerList } from './ServerList';
 import { ChannelList } from './ChannelList';
@@ -7,7 +7,8 @@ import { ChatView } from './ChatView';
 import { MemberSidebar } from './MemberSidebar';
 import { CreateServerModal } from './CreateServerModal';
 import { CreateChannelModal } from './CreateChannelModal';
-import { Mic, Headphones, Settings } from 'lucide-react';
+import { SettingsModal } from './SettingsModal';
+import { Mic, Headphones, Settings, Bell } from 'lucide-react';
 
 interface Props {
   currentUser: User;
@@ -15,7 +16,8 @@ interface Props {
 
 const ADMIN_ID = '8c5e27af-5d11-437b-9b0e-fbc8334a6e0b';
 
-export const Dashboard: React.FC<Props> = ({ currentUser }) => {
+export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
+  const [currentUser, setCurrentUser] = useState(initialUser);
   const [servers, setServers] = useState<Server[]>([]);
   const [selectedServer, setSelectedServer] = useState<Server | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -23,9 +25,37 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
   
   const [isCreateServerOpen, setIsCreateServerOpen] = useState(false);
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [presenceState, setPresenceState] = useState<any>({});
+  
+  // Notification Toasts
+  const [toasts, setToasts] = useState<{id: number, message: string}[]>([]);
 
   const isAdmin = currentUser.id === ADMIN_ID;
+
+  // --- Global Notification Listener ---
+  useEffect(() => {
+    const channel = supabase
+        .channel('global-mentions')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
+            const msg = payload.new as Message;
+            // If message mentions current user and isn't from them
+            if (msg.user_id !== currentUser.id && msg.content.includes(`@${currentUser.username}`)) {
+                 // Fetch sender name
+                 const { data: sender } = await supabase.from('users').select('username').eq('id', msg.user_id).single();
+                 const text = `${sender?.username || 'Someone'} mentioned you: "${msg.content.substring(0, 30)}..."`;
+                 
+                 const id = Date.now();
+                 setToasts(prev => [...prev, { id, message: text }]);
+                 setTimeout(() => {
+                     setToasts(prev => prev.filter(t => t.id !== id));
+                 }, 5000);
+            }
+        })
+        .subscribe();
+    
+    return () => { supabase.removeChannel(channel); }
+  }, [currentUser]);
 
   // --- Presence & Realtime Logic ---
   useEffect(() => {
@@ -121,8 +151,13 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
     fetchChannels(serverId);
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('discord_clone_user_id');
+    window.location.reload();
+  };
+
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-background p-4 gap-4">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-background p-4 gap-4 relative">
       {/* Top Workspace Area */}
       <div className="flex flex-1 min-h-0 gap-4">
         {/* Left: Channel List or DM List */}
@@ -186,21 +221,47 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
             <div className="flex items-center gap-1">
                 <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors"><Mic size={18} /></button>
                 <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors"><Headphones size={18} /></button>
-                <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors"><Settings size={18} /></button>
+                <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors"><Settings size={18} /></button>
             </div>
         </div>
       </div>
 
+      {/* Toasts */}
+      <div className="fixed bottom-24 right-6 z-[60] flex flex-col gap-2 pointer-events-none">
+        {toasts.map(toast => (
+            <div key={toast.id} className="bg-surfaceHighlight border border-primary/50 text-white p-4 rounded-xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-right-10 fade-in duration-300 pointer-events-auto max-w-sm">
+                <Bell className="text-primary shrink-0" size={20} />
+                <span className="text-sm font-medium">{toast.message}</span>
+            </div>
+        ))}
+      </div>
+
       {/* Modals */}
-      {isCreateServerOpen && isAdmin && (
-        <CreateServerModal onClose={() => setIsCreateServerOpen(false)} onCreated={handleServerCreated} />
+      {isCreateServerOpen && (
+        <CreateServerModal 
+          onClose={() => setIsCreateServerOpen(false)} 
+          onCreated={handleServerCreated} 
+        />
       )}
-      {isCreateChannelOpen && selectedServer && isAdmin && (
-        <CreateChannelModal serverId={selectedServer.id} onClose={() => setIsCreateChannelOpen(false)} onCreated={(ch) => {
-            setChannels(prev => [...prev, ch]);
-            setSelectedChannel(ch);
-            setIsCreateChannelOpen(false);
-        }} />
+
+      {isCreateChannelOpen && selectedServer && (
+        <CreateChannelModal 
+          serverId={selectedServer.id} 
+          onClose={() => setIsCreateChannelOpen(false)} 
+          onCreated={(channel) => {
+             setIsCreateChannelOpen(false);
+             fetchChannels(selectedServer.id);
+          }} 
+        />
+      )}
+
+      {isSettingsOpen && (
+          <SettingsModal 
+            user={currentUser}
+            onClose={() => setIsSettingsOpen(false)}
+            onUpdate={setCurrentUser}
+            onLogout={handleLogout}
+          />
       )}
     </div>
   );

@@ -1,9 +1,12 @@
+
 export interface User {
   id: string;
   username: string;
   avatar_url?: string;
   created_at: string;
   status?: 'online' | 'offline'; // Client-side only
+  password?: string; // Stored for demo authentication
+  last_username_change?: string;
 }
 
 export interface Server {
@@ -34,7 +37,9 @@ export interface Message {
   media_type?: 'image' | 'video';
   created_at: string;
   users?: User;
-  reactions?: { [key: string]: string[] }; // JSONB: { "👍": ["user_id_1", "user_id_2"] }
+  reactions?: { [key: string]: string[] };
+  reply_to_message_id?: string | null;
+  reply_to_message?: Message; // Joined data
 }
 
 export interface ServerMember {

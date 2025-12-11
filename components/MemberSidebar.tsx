@@ -35,7 +35,7 @@ export const MemberSidebar: React.FC<Props> = ({ serverId, presenceState }) => {
   const onlineMembers = members.filter(m => onlineMemberIds.has(m.users?.id));
   const offlineMembers = members.filter(m => !onlineMemberIds.has(m.users?.id));
 
-  const MemberItem = ({ member, isOnline }: { member: ServerMember, isOnline: boolean }) => (
+  const MemberItem: React.FC<{ member: ServerMember, isOnline: boolean }> = ({ member, isOnline }) => (
     <div className={`flex items-center p-2 rounded-xl hover:bg-surfaceHighlight cursor-pointer group transition-all duration-200 ${!isOnline ? 'opacity-50 grayscale hover:grayscale-0 hover:opacity-100' : ''}`}>
         <div className="relative shrink-0">
             {member.users?.avatar_url ? (
