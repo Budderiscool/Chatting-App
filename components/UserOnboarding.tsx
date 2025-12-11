@@ -53,8 +53,12 @@ export const UserOnboarding: React.FC<Props> = ({ onUserCreated }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[url('https://picsum.photos/1920/1080?blur=5')] bg-cover bg-center flex items-center justify-center p-4">
-      <div className="bg-surface p-8 rounded-3xl shadow-2xl w-full max-w-md border border-border">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Decorative background elements */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/20 rounded-full blur-[100px]" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/20 rounded-full blur-[100px]" />
+
+      <div className="bg-surface p-8 rounded-3xl shadow-2xl w-full max-w-md border border-border relative z-10">
         <div className="flex justify-center mb-6">
           <div className="bg-primary p-4 rounded-full shadow-lg shadow-primary/20">
             <Gamepad2 className="w-12 h-12 text-white" />
