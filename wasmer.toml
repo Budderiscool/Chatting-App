@@ -1,0 +1,20 @@
+[package]
+name = "discord-clone"
+version = "0.1.0"
+description = "Discord Clone built with Next.js"
+publish = false
+
+[dependencies]
+"wasmer/static-web-server" = "^1"
+
+[fs]
+public = "dist"
+
+[[command]]
+name = "start"
+module = "wasmer/static-web-server:webserver"
+runner = "https://webc.org/runner/wasi"
+
+[command.annotations.wasi]
+env = ["SERVER_PORT=8080"]
+main_args = ["--port", "8080", "--root", "public", "--page-fallback", "index.html"]
