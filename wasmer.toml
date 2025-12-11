@@ -1,0 +1,19 @@
+[package]
+name = "discord-clone"
+version = "0.1.0"
+description = "A fully functional Discord-style chat application"
+license = "MIT"
+
+[dependencies]
+"wasmer/static-web-server" = "^1"
+
+[fs]
+public = "dist"
+
+[[command]]
+name = "script"
+module = "wasmer/static-web-server:webserver"
+runner = "https://webc.org/runner/wasi"
+
+[command.annotations.wasi]
+main-args = ["--port", "8080", "--root", "public", "--page-fallback", "index.html"]
