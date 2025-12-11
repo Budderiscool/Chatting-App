@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Server, Channel, Message } from '../types';
+import { User, Server, Channel, Message, CLIENT_VERSION } from '../types';
 import { supabase } from '../supabaseClient';
 import { ServerList } from './ServerList';
 import { ChannelList } from './ChannelList';
@@ -8,7 +8,7 @@ import { MemberSidebar } from './MemberSidebar';
 import { CreateServerModal } from './CreateServerModal';
 import { CreateChannelModal } from './CreateChannelModal';
 import { SettingsModal } from './SettingsModal';
-import { Mic, Headphones, Settings, Bell } from 'lucide-react';
+import { Mic, Headphones, Settings, Bell, RefreshCw } from 'lucide-react';
 
 interface Props {
   currentUser: User;
@@ -31,7 +31,35 @@ export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
   // Notification Toasts
   const [toasts, setToasts] = useState<{id: number, message: string}[]>([]);
 
+  // Version Control
+  const [requiredVersion, setRequiredVersion] = useState(CLIENT_VERSION);
+
   const isAdmin = currentUser.id === ADMIN_ID;
+
+  // --- Version Check ---
+  useEffect(() => {
+    // 1. Initial Check
+    const checkVersion = async () => {
+        const { data } = await supabase.from('app_config').select('value').eq('key', 'min_client_version').single();
+        if (data) {
+            setRequiredVersion(data.value);
+        }
+    };
+    checkVersion();
+
+    // 2. Realtime Subscription
+    const versionSub = supabase.channel('config-updates')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'app_config' }, (payload) => {
+            if (payload.new && (payload.new as any).key === 'min_client_version') {
+                setRequiredVersion((payload.new as any).value);
+            }
+        })
+        .subscribe();
+
+    return () => { supabase.removeChannel(versionSub); };
+  }, []);
+
+  const isVersionMismatch = requiredVersion !== CLIENT_VERSION;
 
   // --- Global Notification Listener ---
   useEffect(() => {
@@ -222,6 +250,26 @@ export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
                 <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors"><Mic size={18} /></button>
                 <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors"><Headphones size={18} /></button>
                 <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors"><Settings size={18} /></button>
+            </div>
+            
+            {/* Version Indicator */}
+            <div className="border-l border-white/10 pl-4 flex items-center">
+                 {isVersionMismatch ? (
+                     <button 
+                        onClick={() => window.location.reload()}
+                        className="bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/50 px-3 py-1.5 rounded-lg flex items-center gap-2 transition-all animate-pulse"
+                     >
+                        <RefreshCw size={14} className="animate-spin" style={{ animationDuration: '3s' }} />
+                        <div className="flex flex-col items-start">
+                            <span className="text-[10px] font-extrabold uppercase leading-none">Mismatched Version</span>
+                            <span className="text-[10px] leading-none mt-0.5">Click to Reload</span>
+                        </div>
+                     </button>
+                 ) : (
+                    <div className="text-[10px] text-white/20 font-mono select-none" title={`v${CLIENT_VERSION}`}>
+                        v{CLIENT_VERSION}
+                    </div>
+                 )}
             </div>
         </div>
       </div>

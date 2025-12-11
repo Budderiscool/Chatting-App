@@ -74,6 +74,17 @@ begin
   end if;
 end $$;
 
+-- 6. APP CONFIG TABLE (For Version Control)
+create table if not exists public.app_config (
+  key text primary key,
+  value text not null
+);
+
+-- Insert default version if not exists. 
+-- UPDATE THIS VALUE IN THE DATABASE WHEN YOU DEPLOY A NEW VERSION to trigger the reload prompt for users.
+insert into public.app_config (key, value) values ('min_client_version', '1.0.0') on conflict do nothing;
+
+
 -- ENABLE REALTIME
 -- We use a block to prevent errors if publication exists
 do $$
@@ -92,6 +103,9 @@ begin
   end if;
    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'users') then
     alter publication supabase_realtime add table public.users;
+  end if;
+   if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'app_config') then
+    alter publication supabase_realtime add table public.app_config;
   end if;
 end $$;
 
@@ -116,4 +130,8 @@ create policy "Allow all access to server_members" on public.server_members for 
 alter table public.messages enable row level security;
 drop policy if exists "Allow all access to messages" on public.messages;
 create policy "Allow all access to messages" on public.messages for all using (true);
+
+alter table public.app_config enable row level security;
+drop policy if exists "Allow read access to app_config" on public.app_config;
+create policy "Allow read access to app_config" on public.app_config for select using (true);
 ```

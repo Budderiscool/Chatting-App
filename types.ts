@@ -1,4 +1,6 @@
 
+export const CLIENT_VERSION = '1.0.0';
+
 export interface User {
   id: string;
   username: string;
