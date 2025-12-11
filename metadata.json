@@ -1,0 +1,5 @@
+{
+  "name": "Discord Clone",
+  "description": "A fully functional Discord-style chat application with realtime messaging, servers, and channels using Supabase.",
+  "requestFramePermissions": []
+}
