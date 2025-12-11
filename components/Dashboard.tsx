@@ -7,11 +7,13 @@ import { ChatView } from './ChatView';
 import { MemberSidebar } from './MemberSidebar';
 import { CreateServerModal } from './CreateServerModal';
 import { CreateChannelModal } from './CreateChannelModal';
-import { Mic, Headphones, Settings, LogOut } from 'lucide-react';
+import { Mic, Headphones, Settings } from 'lucide-react';
 
 interface Props {
   currentUser: User;
 }
+
+const ADMIN_ID = '8c5e27af-5d11-437b-9b0e-fbc8334a6e0b';
 
 export const Dashboard: React.FC<Props> = ({ currentUser }) => {
   const [servers, setServers] = useState<Server[]>([]);
@@ -21,31 +23,68 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
   
   const [isCreateServerOpen, setIsCreateServerOpen] = useState(false);
   const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false);
+  const [presenceState, setPresenceState] = useState<any>({});
 
-  // Fetch servers on mount
+  const isAdmin = currentUser.id === ADMIN_ID;
+
+  // --- Presence & Realtime Logic ---
+  useEffect(() => {
+    // Track presence
+    const presenceChannel = supabase.channel('global_presence', {
+      config: { presence: { key: currentUser.id } },
+    });
+
+    const updateStatus = async (status: 'online' | 'offline') => {
+      await presenceChannel.track({ 
+        user_id: currentUser.id, 
+        status, 
+        last_seen: new Date().toISOString() 
+      });
+    };
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        setPresenceState(presenceChannel.presenceState());
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await updateStatus('online');
+        }
+      });
+
+    // Window Focus/Blur listeners
+    const handleFocus = () => updateStatus('online');
+    const handleBlur = () => updateStatus('offline');
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+      supabase.removeChannel(presenceChannel);
+    };
+  }, [currentUser.id]);
+
+  // --- Data Fetching ---
   useEffect(() => {
     fetchServers();
-    
-    // Subscribe to new servers
     const serverSub = supabase
       .channel('public:servers')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'servers' }, (payload) => {
         setServers(prev => [...prev, payload.new as Server]);
       })
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(serverSub);
-    };
+    return () => { supabase.removeChannel(serverSub); };
   }, []);
 
-  // Fetch channels when server changes
   useEffect(() => {
     if (selectedServer) {
       fetchChannels(selectedServer.id);
       ensureMembership(selectedServer.id);
     } else {
-      setChannels([]);
+      // Home mode (DMs)
+      setChannels([]); 
       setSelectedChannel(null);
     }
   }, [selectedServer]);
@@ -54,9 +93,7 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
     const { data } = await supabase.from('servers').select('*').order('created_at', { ascending: true });
     if (data) {
       setServers(data);
-      if (data.length > 0 && !selectedServer) {
-        setSelectedServer(data[0]);
-      }
+      if (data.length > 0 && !selectedServer) setSelectedServer(data[0]);
     }
   };
 
@@ -64,28 +101,13 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
     const { data } = await supabase.from('channels').select('*').eq('server_id', serverId).order('created_at', { ascending: true });
     if (data) {
       setChannels(data);
-      if (data.length > 0) {
-        setSelectedChannel(data[0]);
-      } else {
-        setSelectedChannel(null);
-      }
+      if (data.length > 0) setSelectedChannel(data[0]);
     }
   };
 
   const ensureMembership = async (serverId: string) => {
-    const { data } = await supabase
-      .from('server_members')
-      .select('*')
-      .eq('server_id', serverId)
-      .eq('user_id', currentUser.id)
-      .single();
-
-    if (!data) {
-      await supabase.from('server_members').insert({
-        server_id: serverId,
-        user_id: currentUser.id
-      });
-    }
+    const { data } = await supabase.from('server_members').select('*').eq('server_id', serverId).eq('user_id', currentUser.id).single();
+    if (!data) await supabase.from('server_members').insert({ server_id: serverId, user_id: currentUser.id });
   };
 
   const handleServerCreated = (newServer: Server) => {
@@ -99,19 +121,11 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
     fetchChannels(serverId);
   };
 
-  const handleChannelCreated = (newChannel: Channel) => {
-    setChannels(prev => [...prev, newChannel]);
-    setSelectedChannel(newChannel);
-    setIsCreateChannelOpen(false);
-  };
-
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-background p-4 gap-4">
-      
-      {/* Top Workspace Area (Bento Box Layout) */}
+      {/* Top Workspace Area */}
       <div className="flex flex-1 min-h-0 gap-4">
-        
-        {/* Left Panel: Channel List */}
+        {/* Left: Channel List or DM List */}
         <div className="w-72 bg-surface rounded-3xl border border-border shadow-2xl flex flex-col overflow-hidden">
           <ChannelList 
             server={selectedServer}
@@ -119,10 +133,12 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
             selectedChannelId={selectedChannel?.id}
             onSelect={setSelectedChannel}
             onAddChannel={() => setIsCreateChannelOpen(true)}
+            currentUser={currentUser}
+            isAdmin={isAdmin}
           />
         </div>
 
-        {/* Center Panel: Chat */}
+        {/* Center: Chat */}
         <div className="flex-1 bg-surface rounded-3xl border border-border shadow-2xl flex flex-col overflow-hidden relative">
           <ChatView 
             channel={selectedChannel} 
@@ -130,34 +146,36 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
           />
         </div>
         
-        {/* Right Panel: Members (Hidden on small screens) */}
+        {/* Right: Members (Only if server selected) */}
         {selectedServer && (
           <div className="w-72 bg-surface rounded-3xl border border-border shadow-2xl hidden lg:flex flex-col overflow-hidden">
-            <MemberSidebar serverId={selectedServer.id} />
+            <MemberSidebar serverId={selectedServer.id} presenceState={presenceState} />
           </div>
         )}
       </div>
 
-      {/* Bottom Dock (Taskbar) */}
+      {/* Bottom Dock */}
       <div className="h-20 bg-surface/80 backdrop-blur-md rounded-3xl border border-white/5 flex items-center justify-between px-6 shadow-2xl z-50 shrink-0">
-        
-        {/* Dock: Server List */}
         <div className="flex items-center gap-3 overflow-x-auto hide-scrollbar flex-1">
           <ServerList 
             servers={servers} 
             selectedServerId={selectedServer?.id} 
             onSelect={setSelectedServer}
             onAddServer={() => setIsCreateServerOpen(true)}
+            isAdmin={isAdmin}
           />
         </div>
 
-        {/* Dock: User Profile (Right Side) */}
         <div className="flex items-center gap-4 pl-6 border-l border-white/10 ml-4 shrink-0">
             <div className="flex items-center gap-3">
                 <div className="relative">
-                    <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-primary/20">
-                        {currentUser.username.substring(0, 1).toUpperCase()}
-                    </div>
+                    {currentUser.avatar_url ? (
+                         <img src={currentUser.avatar_url} alt="User" className="w-10 h-10 rounded-full object-cover shadow-lg" />
+                    ) : (
+                        <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold text-lg shadow-lg">
+                            {currentUser.username.substring(0, 1).toUpperCase()}
+                        </div>
+                    )}
                     <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-surface rounded-full"></div>
                 </div>
                 <div className="hidden sm:block">
@@ -165,36 +183,24 @@ export const Dashboard: React.FC<Props> = ({ currentUser }) => {
                     <div className="text-textMuted text-xs leading-tight">#{currentUser.id.substring(0, 4)}</div>
                 </div>
             </div>
-            
             <div className="flex items-center gap-1">
-                <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors">
-                    <Mic size={18} />
-                </button>
-                <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors">
-                    <Headphones size={18} />
-                </button>
-                <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors">
-                    <Settings size={18} />
-                </button>
+                <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors"><Mic size={18} /></button>
+                <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors"><Headphones size={18} /></button>
+                <button className="p-2 text-textMuted hover:text-white hover:bg-white/10 rounded-full transition-colors"><Settings size={18} /></button>
             </div>
         </div>
-
       </div>
 
       {/* Modals */}
-      {isCreateServerOpen && (
-        <CreateServerModal 
-          onClose={() => setIsCreateServerOpen(false)} 
-          onCreated={handleServerCreated} 
-        />
+      {isCreateServerOpen && isAdmin && (
+        <CreateServerModal onClose={() => setIsCreateServerOpen(false)} onCreated={handleServerCreated} />
       )}
-      
-      {isCreateChannelOpen && selectedServer && (
-        <CreateChannelModal
-          serverId={selectedServer.id}
-          onClose={() => setIsCreateChannelOpen(false)}
-          onCreated={handleChannelCreated}
-        />
+      {isCreateChannelOpen && selectedServer && isAdmin && (
+        <CreateChannelModal serverId={selectedServer.id} onClose={() => setIsCreateChannelOpen(false)} onCreated={(ch) => {
+            setChannels(prev => [...prev, ch]);
+            setSelectedChannel(ch);
+            setIsCreateChannelOpen(false);
+        }} />
       )}
     </div>
   );
