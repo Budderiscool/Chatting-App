@@ -74,15 +74,16 @@ begin
   end if;
 end $$;
 
--- 6. APP CONFIG TABLE (For Version Control)
+-- 6. APP CONFIG TABLE (For Version Control & Announcements)
 create table if not exists public.app_config (
   key text primary key,
   value text not null
 );
 
--- Insert default version if not exists. 
--- UPDATE THIS VALUE IN THE DATABASE WHEN YOU DEPLOY A NEW VERSION to trigger the reload prompt for users.
+-- Insert default config values
 insert into public.app_config (key, value) values ('min_client_version', '1.0.0') on conflict do nothing;
+insert into public.app_config (key, value) values ('announcement_message', 'Welcome to the server! Have fun.') on conflict do nothing;
+insert into public.app_config (key, value) values ('announcement_active', 'true') on conflict do nothing;
 
 
 -- ENABLE REALTIME
@@ -129,9 +130,10 @@ create policy "Allow all access to server_members" on public.server_members for 
 
 alter table public.messages enable row level security;
 drop policy if exists "Allow all access to messages" on public.messages;
+-- Explicitly allow delete/update/insert for all (controlled by UI logic for this demo app)
 create policy "Allow all access to messages" on public.messages for all using (true);
 
 alter table public.app_config enable row level security;
-drop policy if exists "Allow read access to app_config" on public.app_config;
-create policy "Allow read access to app_config" on public.app_config for select using (true);
+drop policy if exists "Allow all access to app_config" on public.app_config;
+create policy "Allow all access to app_config" on public.app_config for all using (true);
 ```

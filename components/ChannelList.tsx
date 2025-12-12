@@ -16,25 +16,72 @@ interface Props {
 
 export const ChannelList: React.FC<Props> = ({ server, channels, selectedChannelId, onSelect, onAddChannel, currentUser, isAdmin }) => {
   const [dmUsers, setDmUsers] = useState<User[]>([]);
+  const [resolvedDmNames, setResolvedDmNames] = useState<{[key: string]: string}>({});
 
   // If in Home mode, fetch all users to simulate DMs
   useEffect(() => {
     if (!server) {
       const fetchUsers = async () => {
         const { data } = await supabase.from('users').select('*').neq('id', currentUser.id);
-        if (data) setDmUsers(data);
+        if (data) setDmUsers(data as User[]);
       };
       fetchUsers();
     }
   }, [server]);
 
-  // Handle clicking a user for DM
+  // Resolve DM Channel Names
+  useEffect(() => {
+      const resolveNames = async () => {
+          const dmChannels = channels.filter(c => c.is_dm);
+          const newNames: {[key: string]: string} = {};
+          
+          const idsToFetch = new Set<string>();
+
+          dmChannels.forEach(c => {
+             // Name format: dm-ID1-ID2
+             if (c.name.startsWith('dm-')) {
+                 const parts = c.name.replace('dm-', '').split('-');
+                 if (parts.length >= 2) {
+                     // Find the ID that isn't current user
+                     // Note: parts[0] is first UUID, parts[1] is second.
+                     // UUID is 36 chars.
+                     const id1 = c.name.substring(3, 39);
+                     const id2 = c.name.substring(40);
+                     const otherId = id1 === currentUser.id ? id2 : id1;
+                     if (otherId) idsToFetch.add(otherId);
+                 }
+             }
+          });
+
+          if (idsToFetch.size > 0) {
+              const { data: users } = await supabase.from('users').select('id, username').in('id', Array.from(idsToFetch));
+              
+              if (users) {
+                  const userMap = new Map(users.map((u: any) => [u.id, u.username as string]));
+                   dmChannels.forEach(c => {
+                        const id1 = c.name.substring(3, 39);
+                        const id2 = c.name.substring(40);
+                        const otherId = id1 === currentUser.id ? id2 : id1;
+                        if (userMap.has(otherId)) {
+                            newNames[c.id] = userMap.get(otherId)!;
+                        }
+                   });
+              }
+          }
+          setResolvedDmNames(newNames);
+      };
+
+      if (server) {
+        resolveNames();
+      }
+  }, [channels, server, currentUser.id]);
+
+  // Handle clicking a user for DM (Home Screen)
   const handleUserClick = async (targetUser: User) => {
-    // Check if DM channel exists (simple hack: check for channel name "dm-id1-id2")
     const ids = [currentUser.id, targetUser.id].sort();
     const dmName = `dm-${ids[0]}-${ids[1]}`;
     
-    // Check if it exists in DB (we are searching global channels for this hack to work)
+    // Check if it exists in DB (global search for DMs)
     let { data: existingChannel } = await supabase.from('channels').select('*').eq('name', dmName).single();
     
     if (!existingChannel) {
@@ -42,7 +89,7 @@ export const ChannelList: React.FC<Props> = ({ server, channels, selectedChannel
         const { data } = await supabase.from('channels').insert({
             name: dmName,
             is_dm: true,
-            server_id: null // It's a DM
+            server_id: null
         }).select().single();
         existingChannel = data;
     }
@@ -61,7 +108,7 @@ export const ChannelList: React.FC<Props> = ({ server, channels, selectedChannel
                 <input type="text" placeholder="Find or start a conversation" className="bg-transparent focus:outline-none text-sm w-full" />
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
-                <div className="px-3 mb-2 text-xs font-bold text-textMuted uppercase tracking-wider">Direct Messages</div>
+                <div className="px-3 mb-2 text-xs font-bold text-textMuted uppercase tracking-wider">Start a Conversation</div>
                 {dmUsers.map(user => (
                     <button key={user.id} onClick={() => handleUserClick(user)} className="w-full flex items-center px-3 py-2.5 rounded-xl hover:bg-surfaceHighlight transition-all group">
                         <div className="relative">
@@ -79,6 +126,7 @@ export const ChannelList: React.FC<Props> = ({ server, channels, selectedChannel
     )
   }
 
+  // Server View
   return (
     <div className="flex flex-col h-full bg-surface">
       <div className="h-16 px-6 flex items-center justify-between font-bold text-lg text-white border-b border-border bg-surfaceHighlight/30 backdrop-blur-sm shrink-0">
@@ -99,19 +147,24 @@ export const ChannelList: React.FC<Props> = ({ server, channels, selectedChannel
                 )}
             </div>
             <div className="space-y-1">
-            {channels.filter(c => !c.name.includes('voice')).map((channel) => (
-                <button
-                key={channel.id}
-                onClick={() => onSelect(channel)}
-                className={clsx(
-                    "w-full flex items-center px-3 py-2.5 rounded-xl mx-0 group transition-all duration-200",
-                    selectedChannelId === channel.id ? "bg-primary/10 text-primary font-semibold shadow-sm" : "text-textMuted hover:bg-surfaceHighlight hover:text-text"
-                )}
-                >
-                <Hash size={18} className={clsx("mr-2.5", selectedChannelId === channel.id ? "text-primary" : "text-textMuted/70")} />
-                <span className="truncate">{channel.name}</span>
-                </button>
-            ))}
+            {channels.filter(c => !c.name.includes('voice')).map((channel) => {
+                // If by some chance a DM channel ends up in a server list (data error), handle name
+                const displayName = channel.is_dm ? (resolvedDmNames[channel.id] || "Loading...") : channel.name;
+
+                return (
+                    <button
+                        key={channel.id}
+                        onClick={() => onSelect(channel)}
+                        className={clsx(
+                            "w-full flex items-center px-3 py-2.5 rounded-xl mx-0 group transition-all duration-200",
+                            selectedChannelId === channel.id ? "bg-primary/10 text-primary font-semibold shadow-sm" : "text-textMuted hover:bg-surfaceHighlight hover:text-text"
+                        )}
+                    >
+                        <Hash size={18} className={clsx("mr-2.5", selectedChannelId === channel.id ? "text-primary" : "text-textMuted/70")} />
+                        <span className="truncate">{displayName}</span>
+                    </button>
+                );
+            })}
             </div>
         </div>
       </div>

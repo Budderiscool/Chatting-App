@@ -8,6 +8,7 @@ import { MemberSidebar } from './MemberSidebar';
 import { CreateServerModal } from './CreateServerModal';
 import { CreateChannelModal } from './CreateChannelModal';
 import { SettingsModal } from './SettingsModal';
+import { AnnouncementBar } from './AnnouncementBar';
 import { Mic, Headphones, Settings, Bell, RefreshCw } from 'lucide-react';
 
 interface Props {
@@ -67,7 +68,7 @@ export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
         .channel('global-mentions')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
             const msg = payload.new as Message;
-            // If message mentions current user and isn't from them
+            // Mentions logic: Check if message contains @Username
             if (msg.user_id !== currentUser.id && msg.content.includes(`@${currentUser.username}`)) {
                  // Fetch sender name
                  const { data: sender } = await supabase.from('users').select('username').eq('id', msg.user_id).single();
@@ -75,6 +76,10 @@ export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
                  
                  const id = Date.now();
                  setToasts(prev => [...prev, { id, message: text }]);
+                 
+                 // Play sound if available (optional)
+                 // const audio = new Audio('/notification.mp3'); audio.play().catch(() => {});
+
                  setTimeout(() => {
                      setToasts(prev => prev.filter(t => t.id !== id));
                  }, 5000);
@@ -185,9 +190,10 @@ export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-background p-4 gap-4 relative">
-      {/* Top Workspace Area */}
-      <div className="flex flex-1 min-h-0 gap-4">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-background relative">
+      <AnnouncementBar isAdmin={isAdmin} />
+      
+      <div className="flex flex-1 min-h-0 gap-4 p-4 pt-2">
         {/* Left: Channel List or DM List */}
         <div className="w-72 bg-surface rounded-3xl border border-border shadow-2xl flex flex-col overflow-hidden">
           <ChannelList 
@@ -206,6 +212,7 @@ export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
           <ChatView 
             channel={selectedChannel} 
             currentUser={currentUser}
+            presenceState={presenceState}
           />
         </div>
         
@@ -218,7 +225,7 @@ export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
       </div>
 
       {/* Bottom Dock */}
-      <div className="h-20 bg-surface/80 backdrop-blur-md rounded-3xl border border-white/5 flex items-center justify-between px-6 shadow-2xl z-50 shrink-0">
+      <div className="h-20 bg-surface/80 backdrop-blur-md rounded-3xl border border-white/5 flex items-center justify-between px-6 shadow-2xl z-50 shrink-0 mx-4 mb-4">
         <div className="flex items-center gap-3 overflow-x-auto hide-scrollbar flex-1">
           <ServerList 
             servers={servers} 

@@ -11,11 +11,12 @@ import { ForwardModal } from './ForwardModal';
 interface Props {
   channel: Channel | null;
   currentUser: User;
+  presenceState?: any; // To get user list for autocomplete if needed
 }
 
 const ADMIN_ID = '8c5e27af-5d11-437b-9b0e-fbc8334a6e0b';
 
-export const ChatView: React.FC<Props> = ({ channel, currentUser }) => {
+export const ChatView: React.FC<Props> = ({ channel, currentUser, presenceState }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [showMediaPicker, setShowMediaPicker] = useState(false);
@@ -26,6 +27,12 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser }) => {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
+  const [dmOtherUser, setDmOtherUser] = useState<string>('');
+
+  // Mentions
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionUsers, setMentionUsers] = useState<User[]>([]);
+  const [showMentionPopup, setShowMentionPopup] = useState(false);
 
   // Media / Search State
   const [mediaUrlInput, setMediaUrlInput] = useState('');
@@ -39,8 +46,23 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Load Messages & DM Name
   useEffect(() => {
     if (!channel) return;
+
+    // Resolve DM Name if needed
+    if (channel.is_dm && channel.name.startsWith('dm-')) {
+         const id1 = channel.name.substring(3, 39);
+         const id2 = channel.name.substring(40);
+         const otherId = id1 === currentUser.id ? id2 : id1;
+         
+         supabase.from('users').select('username').eq('id', otherId).single()
+            .then(({ data }) => {
+                if (data) setDmOtherUser(data.username);
+            });
+    } else {
+        setDmOtherUser('');
+    }
 
     const fetchMessages = async () => {
       // We perform a self-join to get the replied message content
@@ -74,7 +96,6 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser }) => {
         filter: `channel_id=eq.${channel.id}`
       }, async (payload) => {
         if (payload.eventType === 'INSERT') {
-            // Fetch the new message with user and reply data
             const { data: newMessage } = await supabase
                 .from('messages')
                 .select(`*, users (username, avatar_url), reply_to_message:messages!reply_to_message_id(id, content, users(username))`)
@@ -94,7 +115,36 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser }) => {
       .subscribe();
 
     return () => { supabase.removeChannel(subscription); };
-  }, [channel]);
+  }, [channel, currentUser.id]);
+
+  // Handle Input Change for Mentions
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value;
+      setInputText(val);
+
+      // Simple regex to detect @word at the end of string
+      const match = val.match(/@(\w*)$/);
+      if (match) {
+          setMentionQuery(match[1]);
+          setShowMentionPopup(true);
+          // Fetch potential users (simplified: fetching all users for now, ideally scope to server)
+          supabase.from('users').select('username, avatar_url').ilike('username', `${match[1]}%`).limit(5)
+            .then(({ data }) => {
+                if (data) setMentionUsers(data as any);
+            });
+      } else {
+          setShowMentionPopup(false);
+          setMentionQuery(null);
+      }
+  };
+
+  const insertMention = (username: string) => {
+      if (!mentionQuery && mentionQuery !== '') return;
+      const before = inputText.substring(0, inputText.lastIndexOf(`@${mentionQuery}`));
+      setInputText(`${before}@${username} `);
+      setShowMentionPopup(false);
+      inputRef.current?.focus();
+  };
 
   // Focus input when replying
   useEffect(() => {
@@ -118,6 +168,7 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser }) => {
     setMediaUrlInput('');
     setSearchQuery('');
     setSearchResults([]);
+    setShowMentionPopup(false);
     const currentReply = replyingTo;
     setReplyingTo(null);
 
@@ -134,8 +185,15 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser }) => {
   };
 
   const handleDeleteMessage = async (messageId: string) => {
+    // Optimistic Update
+    setMessages(prev => prev.filter(m => m.id !== messageId));
+
     const { error } = await supabase.from('messages').delete().eq('id', messageId);
-    if (error) console.error("Error deleting", error);
+    if (error) {
+        console.error("Error deleting", error);
+        // Revert if failed (requires fetching message back, but simple console log for now)
+        alert("Failed to delete message.");
+    }
   };
 
   // --- Reactions ---
@@ -211,13 +269,15 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser }) => {
 
   if (!channel) return <div className="flex-1 bg-surface flex items-center justify-center text-textMuted"><p>Select a channel or user to start chatting.</p></div>;
 
+  const displayChannelName = dmOtherUser ? `DM: ${dmOtherUser}` : channel.name;
+
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-surface relative">
       {/* Header */}
       <div className="h-16 px-6 flex items-center justify-between border-b border-border bg-surfaceHighlight/30 backdrop-blur-sm z-10 shrink-0">
         <div className="flex items-center">
             <Hash className="text-textMuted mr-3" size={22} />
-            <span className="font-bold text-white text-lg mr-4">{channel.name.replace('dm-', 'DM: ')}</span>
+            <span className="font-bold text-white text-lg mr-4">{displayChannelName}</span>
         </div>
       </div>
 
@@ -286,7 +346,8 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser }) => {
                                     p: ({node, ...props}) => {
                                         // Highlight mentions
                                         const text = props.children?.toString() || '';
-                                        if (text.includes('@' + currentUser.username)) {
+                                        // Simple highlight check
+                                        if (text.includes(`@${currentUser.username}`)) {
                                             return <p className="mb-1 last:mb-0 bg-yellow-500/10 border-l-2 border-yellow-500 pl-2 rounded-r" {...props} />
                                         }
                                         return <p className="mb-1 last:mb-0" {...props} />
@@ -370,6 +431,25 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser }) => {
                     <span className="text-white">Replying to <span className="font-bold text-primary">@{replyingTo.users?.username}</span></span>
                 </div>
                 <button onClick={() => setReplyingTo(null)} className="hover:text-white"><X size={14} /></button>
+            </div>
+        )}
+        
+        {/* Mention Popup */}
+        {showMentionPopup && mentionUsers.length > 0 && (
+            <div className="absolute bottom-20 left-6 bg-surfaceHighlight border border-border shadow-xl rounded-xl w-64 overflow-hidden z-[60]">
+                <div className="bg-black/20 px-3 py-1.5 text-xs font-bold text-textMuted uppercase border-b border-white/5">Members</div>
+                {mentionUsers.map(u => (
+                    <button 
+                        key={u.username}
+                        onClick={() => insertMention(u.username)}
+                        className="w-full flex items-center p-2 hover:bg-primary/20 hover:text-white text-textMuted transition-colors text-left"
+                    >
+                        <div className="w-6 h-6 rounded-full bg-black/50 mr-2 overflow-hidden">
+                            {u.avatar_url ? <img src={u.avatar_url} className="w-full h-full object-cover"/> : <div className="text-[10px] flex items-center justify-center h-full font-bold">{u.username[0]}</div>}
+                        </div>
+                        <span className="text-sm font-medium">{u.username}</span>
+                    </button>
+                ))}
             </div>
         )}
 
@@ -469,9 +549,9 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser }) => {
                 ref={inputRef}
                 type="text"
                 className="flex-1 bg-transparent text-text focus:outline-none placeholder-textMuted/50 font-medium"
-                placeholder={replyingTo ? `Replying to @${replyingTo.users?.username}` : `Message ${channel.name}`}
+                placeholder={replyingTo ? `Replying to @${replyingTo.users?.username}` : `Message ${displayChannelName}`}
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={handleInputChange}
             />
           )}
           
