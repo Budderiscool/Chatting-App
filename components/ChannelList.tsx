@@ -12,9 +12,10 @@ interface Props {
   onAddChannel: () => void;
   currentUser: User;
   isAdmin: boolean;
+  unreadChannelIds?: Set<string>;
 }
 
-export const ChannelList: React.FC<Props> = ({ server, channels, selectedChannelId, onSelect, onAddChannel, currentUser, isAdmin }) => {
+export const ChannelList: React.FC<Props> = ({ server, channels, selectedChannelId, onSelect, onAddChannel, currentUser, isAdmin, unreadChannelIds = new Set() }) => {
   const [dmUsers, setDmUsers] = useState<User[]>([]);
   const [resolvedDmNames, setResolvedDmNames] = useState<{[key: string]: string}>({});
 
@@ -57,7 +58,7 @@ export const ChannelList: React.FC<Props> = ({ server, channels, selectedChannel
               const { data: users } = await supabase.from('users').select('id, username').in('id', Array.from(idsToFetch));
               
               if (users) {
-                  const userMap = new Map(users.map((u: any) => [u.id, u.username as string]));
+                  const userMap = new Map((users as any[]).map((u: any) => [u.id, u.username] as [string, string]));
                    dmChannels.forEach(c => {
                         const id1 = c.name.substring(3, 39);
                         const id2 = c.name.substring(40);
@@ -150,18 +151,24 @@ export const ChannelList: React.FC<Props> = ({ server, channels, selectedChannel
             {channels.filter(c => !c.name.includes('voice')).map((channel) => {
                 // If by some chance a DM channel ends up in a server list (data error), handle name
                 const displayName = channel.is_dm ? (resolvedDmNames[channel.id] || "Loading...") : channel.name;
+                const isUnread = unreadChannelIds.has(channel.id) && selectedChannelId !== channel.id;
 
                 return (
                     <button
                         key={channel.id}
                         onClick={() => onSelect(channel)}
                         className={clsx(
-                            "w-full flex items-center px-3 py-2.5 rounded-xl mx-0 group transition-all duration-200",
-                            selectedChannelId === channel.id ? "bg-primary/10 text-primary font-semibold shadow-sm" : "text-textMuted hover:bg-surfaceHighlight hover:text-text"
+                            "w-full flex items-center px-3 py-2.5 rounded-xl mx-0 group transition-all duration-200 justify-between",
+                            selectedChannelId === channel.id ? "bg-primary/10 text-primary font-semibold shadow-sm" : isUnread ? "text-white bg-white/5" : "text-textMuted hover:bg-surfaceHighlight hover:text-text"
                         )}
                     >
-                        <Hash size={18} className={clsx("mr-2.5", selectedChannelId === channel.id ? "text-primary" : "text-textMuted/70")} />
-                        <span className="truncate">{displayName}</span>
+                        <div className="flex items-center truncate">
+                            <Hash size={18} className={clsx("mr-2.5", selectedChannelId === channel.id ? "text-primary" : "text-textMuted/70")} />
+                            <span className={clsx("truncate", isUnread && "font-bold text-white")}>{displayName}</span>
+                        </div>
+                        {isUnread && (
+                            <div className="w-2 h-2 rounded-full bg-white ml-2 shrink-0"></div>
+                        )}
                     </button>
                 );
             })}

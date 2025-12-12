@@ -65,6 +65,12 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser, presenceState 
     }
 
     const fetchMessages = async () => {
+      // Mark as Read on entry
+      await supabase.from('channel_reads').upsert(
+        { user_id: currentUser.id, channel_id: channel.id, last_read_at: new Date().toISOString() }, 
+        { onConflict: 'user_id,channel_id' }
+      );
+
       // We perform a self-join to get the replied message content
       const { data, error } = await supabase
         .from('messages')
@@ -72,7 +78,7 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser, presenceState 
             *, 
             users (username, avatar_url),
             reply_to_message:messages!reply_to_message_id(
-                id, content, users(username)
+                id, content, users(username, avatar_url)
             )
         `)
         .eq('channel_id', channel.id)
@@ -96,9 +102,15 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser, presenceState 
         filter: `channel_id=eq.${channel.id}`
       }, async (payload) => {
         if (payload.eventType === 'INSERT') {
+            // Update Read Status on new message incoming (if focused? For now always if in channel)
+            await supabase.from('channel_reads').upsert(
+                { user_id: currentUser.id, channel_id: channel.id, last_read_at: new Date().toISOString() }, 
+                { onConflict: 'user_id,channel_id' }
+            );
+
             const { data: newMessage } = await supabase
                 .from('messages')
-                .select(`*, users (username, avatar_url), reply_to_message:messages!reply_to_message_id(id, content, users(username))`)
+                .select(`*, users (username, avatar_url), reply_to_message:messages!reply_to_message_id(id, content, users(username, avatar_url))`)
                 .eq('id', payload.new.id)
                 .single();
             
@@ -170,7 +182,7 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser, presenceState 
     setSearchResults([]);
     setShowMentionPopup(false);
     const currentReply = replyingTo;
-    setReplyingTo(null);
+    setReplyingTo(null); // Clear reply state BEFORE sending
 
     const { error } = await supabase.from('messages').insert({
       channel_id: channel.id,
@@ -178,7 +190,7 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser, presenceState 
       content: text,
       media_url: mediaUrl,
       media_type: mediaUrl ? 'image' : undefined,
-      reply_to_message_id: currentReply?.id || null
+      reply_to_message_id: currentReply?.id || null // Explicitly null if no reply
     });
 
     if (error) console.error("Error sending message:", error);
@@ -191,7 +203,6 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser, presenceState 
     const { error } = await supabase.from('messages').delete().eq('id', messageId);
     if (error) {
         console.error("Error deleting", error);
-        // Revert if failed (requires fetching message back, but simple console log for now)
         alert("Failed to delete message.");
     }
   };
@@ -285,8 +296,20 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser, presenceState 
       <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col px-6 pt-6">
         {messages.map((msg, index) => {
            const prevMsg = messages[index - 1];
-           // Only sequence if not a reply and user matches
-           const isSequence = !msg.reply_to_message_id && prevMsg && prevMsg.user_id === msg.user_id && (new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 5 * 60 * 1000);
+           
+           const isReply = !!msg.reply_to_message_id;
+           
+           // Refined Sequence Logic:
+           // 1. Not a reply itself
+           // 2. Previous message exists and is NOT a reply (prevents merging into a reply block visually)
+           // 3. Same user
+           // 4. Within 5 minutes
+           const isSequence = !isReply && 
+                              prevMsg && 
+                              !prevMsg.reply_to_message_id && 
+                              prevMsg.user_id === msg.user_id && 
+                              (new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 5 * 60 * 1000);
+           
            const isMe = msg.user_id === currentUser.id;
            const canDelete = isMe || currentUser.id === ADMIN_ID;
 
@@ -299,15 +322,15 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser, presenceState 
             >
               {/* Reply Reference Preview */}
               {msg.reply_to_message && (
-                  <div className="flex items-center ml-12 mb-1 text-xs text-textMuted/70 opacity-80">
-                      <div className="w-8 border-t-2 border-l-2 border-textMuted/30 rounded-tl-md h-3 mr-2 absolute left-6 top-0"></div>
-                      <div className="flex items-center gap-1 cursor-pointer hover:text-white" onClick={() => {
+                  <div className="flex items-center ml-12 mb-1 text-xs text-textMuted/70 opacity-80 relative z-10 select-none">
+                      <div className="w-8 border-t-2 border-l-2 border-textMuted/30 rounded-tl-md h-3 mr-2 absolute left-[-32px] top-2"></div>
+                      <div className="flex items-center gap-1 cursor-pointer hover:text-white transition-colors" onClick={() => {
                           const el = document.getElementById(`msg-${msg.reply_to_message_id}`);
                           el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                       }}>
-                         <img src={msg.reply_to_message.users?.avatar_url || ''} className="w-4 h-4 rounded-full" />
+                         {msg.reply_to_message.users?.avatar_url && <img src={msg.reply_to_message.users?.avatar_url} className="w-4 h-4 rounded-full" />}
                          <span className="font-bold text-primary">@{msg.reply_to_message.users?.username}</span>
-                         <span className="truncate max-w-xs">{msg.reply_to_message.content}</span>
+                         <span className="truncate max-w-xs">{msg.reply_to_message.content || "Media Attachment"}</span>
                       </div>
                   </div>
               )}
@@ -455,7 +478,7 @@ export const ChatView: React.FC<Props> = ({ channel, currentUser, presenceState 
 
         {showMediaPicker && (
             <div className="absolute bottom-24 left-6 bg-surfaceHighlight border border-border rounded-xl shadow-2xl w-96 z-50 overflow-hidden flex flex-col h-[500px]">
-                {/* ... (Existing Media Picker Code kept same as previous XML but inside this logic block) ... */}
+                {/* Media Picker Content */}
                  <div className="flex border-b border-white/5">
                     <button 
                         onClick={() => setActiveTab('upload')}

@@ -9,9 +9,10 @@ interface Props {
   onSelect: (server: Server | null) => void;
   onAddServer: () => void;
   isAdmin: boolean;
+  unreadServerIds: Set<string>;
 }
 
-export const ServerList: React.FC<Props> = ({ servers, selectedServerId, onSelect, onAddServer, isAdmin }) => {
+export const ServerList: React.FC<Props> = ({ servers, selectedServerId, onSelect, onAddServer, isAdmin, unreadServerIds }) => {
   return (
     <div className="flex items-center gap-3 h-full">
       {/* Home Button (DMs) */}
@@ -37,6 +38,12 @@ export const ServerList: React.FC<Props> = ({ servers, selectedServerId, onSelec
            {selectedServerId === server.id && (
                 <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_8px_white]"></span>
            )}
+           
+           {/* Unread Indicator */}
+           {unreadServerIds.has(server.id) && selectedServerId !== server.id && (
+               <span className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-surface z-10"></span>
+           )}
+
           <button
             onClick={() => onSelect(server)}
             className={clsx(

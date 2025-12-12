@@ -29,6 +29,10 @@ export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [presenceState, setPresenceState] = useState<any>({});
   
+  // Unread State
+  const [unreadChannelIds, setUnreadChannelIds] = useState<Set<string>>(new Set());
+  const [unreadServerIds, setUnreadServerIds] = useState<Set<string>>(new Set());
+
   // Notification Toasts
   const [toasts, setToasts] = useState<{id: number, message: string}[]>([]);
 
@@ -76,9 +80,6 @@ export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
                  
                  const id = Date.now();
                  setToasts(prev => [...prev, { id, message: text }]);
-                 
-                 // Play sound if available (optional)
-                 // const audio = new Audio('/notification.mp3'); audio.play().catch(() => {});
 
                  setTimeout(() => {
                      setToasts(prev => prev.filter(t => t.id !== id));
@@ -89,6 +90,79 @@ export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
     
     return () => { supabase.removeChannel(channel); }
   }, [currentUser]);
+
+  // --- Unread Logic ---
+  const fetchUnreads = async () => {
+      // 1. Get all channels the user has access to (simplified: get all channels, filtering by user membership is heavier but safer)
+      // For this demo, we assume user can see all public channels. 
+      // We need channel Last Message At
+      const { data: allChannels } = await supabase.from('channels').select('id, server_id, last_message_at');
+      
+      // 2. Get user's read states
+      const { data: reads } = await supabase.from('channel_reads').select('channel_id, last_read_at').eq('user_id', currentUser.id);
+      
+      const readMap = new Map();
+      reads?.forEach(r => readMap.set(r.channel_id, r.last_read_at));
+
+      const unreadCh = new Set<string>();
+      const unreadSv = new Set<string>();
+
+      allChannels?.forEach((ch: any) => {
+          if (!ch.last_message_at) return;
+          
+          // Skip if currently selected
+          if (selectedChannel && ch.id === selectedChannel.id) return;
+
+          const lastRead = readMap.get(ch.id);
+          // If never read, or last message is newer than last read
+          if (!lastRead || new Date(ch.last_message_at) > new Date(lastRead)) {
+              unreadCh.add(ch.id);
+              if (ch.server_id) unreadSv.add(ch.server_id);
+          }
+      });
+      
+      setUnreadChannelIds(unreadCh);
+      setUnreadServerIds(unreadSv);
+  };
+
+  // Poll for unreads occasionally or set up complex realtime listeners
+  // For simplicity, we poll every 30s and also trigger on realtime message events
+  useEffect(() => {
+      fetchUnreads();
+      const interval = setInterval(fetchUnreads, 30000);
+
+      // Listen for ANY new message to update unreads
+      const sub = supabase.channel('global-unreads')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+             // Delay slightly to allow DB trigger to update channel last_message_at
+             setTimeout(fetchUnreads, 1000);
+        })
+        .subscribe();
+
+      return () => { clearInterval(interval); supabase.removeChannel(sub); };
+  }, [selectedChannel, currentUser.id]);
+
+  // Mark current channel as read
+  useEffect(() => {
+      if (selectedChannel) {
+          // Optimistically remove from unread set
+          setUnreadChannelIds(prev => {
+              const next = new Set(prev);
+              next.delete(selectedChannel.id);
+              return next;
+          });
+          
+          // Update DB
+          supabase.from('channel_reads').upsert(
+              { user_id: currentUser.id, channel_id: selectedChannel.id, last_read_at: new Date().toISOString() }, 
+              { onConflict: 'user_id,channel_id' }
+          ).then(() => {
+              // Re-evaluate server unreads after a short delay
+              setTimeout(fetchUnreads, 500);
+          });
+      }
+  }, [selectedChannel]);
+
 
   // --- Presence & Realtime Logic ---
   useEffect(() => {
@@ -204,6 +278,7 @@ export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
             onAddChannel={() => setIsCreateChannelOpen(true)}
             currentUser={currentUser}
             isAdmin={isAdmin}
+            unreadChannelIds={unreadChannelIds}
           />
         </div>
 
@@ -233,6 +308,7 @@ export const Dashboard: React.FC<Props> = ({ currentUser: initialUser }) => {
             onSelect={setSelectedServer}
             onAddServer={() => setIsCreateServerOpen(true)}
             isAdmin={isAdmin}
+            unreadServerIds={unreadServerIds}
           />
         </div>
 

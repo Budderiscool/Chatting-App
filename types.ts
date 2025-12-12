@@ -23,6 +23,7 @@ export interface Channel {
   name: string;
   is_dm?: boolean;
   created_at: string;
+  last_message_at?: string; // New field for unread logic
 }
 
 export interface Reaction {

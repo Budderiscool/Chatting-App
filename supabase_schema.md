@@ -42,6 +42,14 @@ create table if not exists public.channels (
   created_at timestamptz default now()
 );
 
+-- Add last_message_at to channels for unread logic
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_name = 'channels' and column_name = 'last_message_at') then
+    alter table public.channels add column last_message_at timestamptz default now();
+  end if;
+end $$;
+
 -- 4. SERVER MEMBERS TABLE
 create table if not exists public.server_members (
   id uuid default gen_random_uuid() primary key,
@@ -84,6 +92,33 @@ create table if not exists public.app_config (
 insert into public.app_config (key, value) values ('min_client_version', '1.0.0') on conflict do nothing;
 insert into public.app_config (key, value) values ('announcement_message', 'Welcome to the server! Have fun.') on conflict do nothing;
 insert into public.app_config (key, value) values ('announcement_active', 'true') on conflict do nothing;
+insert into public.app_config (key, value) values ('announcement_expires_at', '') on conflict do nothing;
+
+-- 7. CHANNEL READS (For Unread Status)
+create table if not exists public.channel_reads (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.users(id) on delete cascade,
+  channel_id uuid references public.channels(id) on delete cascade,
+  last_read_at timestamptz default now(),
+  unique(user_id, channel_id)
+);
+
+
+-- TRIGGER: Update channels.last_message_at on new message
+create or replace function public.update_channel_last_message_at()
+returns trigger as $$
+begin
+  update public.channels
+  set last_message_at = new.created_at
+  where id = new.channel_id;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists on_message_created on public.messages;
+create trigger on_message_created
+  after insert on public.messages
+  for each row execute procedure public.update_channel_last_message_at();
 
 
 -- ENABLE REALTIME
@@ -108,6 +143,9 @@ begin
    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'app_config') then
     alter publication supabase_realtime add table public.app_config;
   end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'channel_reads') then
+    alter publication supabase_realtime add table public.channel_reads;
+  end if;
 end $$;
 
 -- ROW LEVEL SECURITY (RLS)
@@ -130,10 +168,13 @@ create policy "Allow all access to server_members" on public.server_members for 
 
 alter table public.messages enable row level security;
 drop policy if exists "Allow all access to messages" on public.messages;
--- Explicitly allow delete/update/insert for all (controlled by UI logic for this demo app)
 create policy "Allow all access to messages" on public.messages for all using (true);
 
 alter table public.app_config enable row level security;
 drop policy if exists "Allow all access to app_config" on public.app_config;
 create policy "Allow all access to app_config" on public.app_config for all using (true);
+
+alter table public.channel_reads enable row level security;
+drop policy if exists "Allow all access to channel_reads" on public.channel_reads;
+create policy "Allow all access to channel_reads" on public.channel_reads for all using (true);
 ```

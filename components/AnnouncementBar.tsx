@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
-import { Megaphone, X, Edit2, Save, Trash } from 'lucide-react';
+import { Megaphone, X, Edit2, Save, Trash, Clock } from 'lucide-react';
+import { addHours, addDays, isPast, parseISO } from 'date-fns';
 
 interface Props {
   isAdmin: boolean;
@@ -9,42 +10,62 @@ interface Props {
 export const AnnouncementBar: React.FC<Props> = ({ isAdmin }) => {
   const [message, setMessage] = useState('');
   const [isActive, setIsActive] = useState(false);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  
+  // Editing State
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
+  const [duration, setDuration] = useState('24h'); // default 1 day
+
+  // Visibility (Local State only - resets on refresh)
   const [isVisible, setIsVisible] = useState(true);
 
   // Load initial state
   useEffect(() => {
     const fetchData = async () => {
-      const { data: msgData } = await supabase.from('app_config').select('value').eq('key', 'announcement_message').single();
-      const { data: activeData } = await supabase.from('app_config').select('value').eq('key', 'announcement_active').single();
+      const { data } = await supabase.from('app_config').select('key, value').in('key', ['announcement_message', 'announcement_active', 'announcement_expires_at']);
       
-      if (msgData) setMessage(msgData.value);
-      if (activeData) setIsActive(activeData.value === 'true');
+      if (data) {
+        data.forEach(row => {
+            if (row.key === 'announcement_message') setMessage(row.value);
+            if (row.key === 'announcement_active') setIsActive(row.value === 'true');
+            if (row.key === 'announcement_expires_at') setExpiresAt(row.value);
+        });
+      }
     };
 
     fetchData();
 
-    // Check local storage for close state
-    const closed = sessionStorage.getItem('announcement_closed');
-    if (closed) setIsVisible(false);
-
     const sub = supabase.channel('config-announcements')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'app_config' }, (payload) => {
-          if ((payload.new as any).key === 'announcement_message') setMessage((payload.new as any).value);
-          if ((payload.new as any).key === 'announcement_active') setIsActive((payload.new as any).value === 'true');
+          const key = (payload.new as any).key;
+          const val = (payload.new as any).value;
+          if (key === 'announcement_message') setMessage(val);
+          if (key === 'announcement_active') setIsActive(val === 'true');
+          if (key === 'announcement_expires_at') setExpiresAt(val);
       })
       .subscribe();
 
     return () => { supabase.removeChannel(sub); };
-  }, [message]); // re-run if message changes to check sessionStorage again if needed, though mainly just on mount
+  }, []);
 
   const handleSave = async () => {
+    let newExpiry = '';
+    const now = new Date();
+    
+    if (duration === '1h') newExpiry = addHours(now, 1).toISOString();
+    else if (duration === '24h') newExpiry = addDays(now, 1).toISOString();
+    else if (duration === '7d') newExpiry = addDays(now, 7).toISOString();
+    else if (duration === 'forever') newExpiry = '';
+
     await supabase.from('app_config').upsert({ key: 'announcement_message', value: editValue });
     await supabase.from('app_config').upsert({ key: 'announcement_active', value: 'true' });
+    await supabase.from('app_config').upsert({ key: 'announcement_expires_at', value: newExpiry });
+    
     setIsEditing(false);
     setMessage(editValue);
     setIsActive(true);
+    setExpiresAt(newExpiry);
   };
 
   const handleDisable = async () => {
@@ -52,35 +73,50 @@ export const AnnouncementBar: React.FC<Props> = ({ isAdmin }) => {
       setIsEditing(false);
   };
 
-  const handleClose = () => {
-      setIsVisible(false);
-      sessionStorage.setItem('announcement_closed', 'true');
-  };
+  // Check Expiry
+  const isExpired = expiresAt && expiresAt !== '' && isPast(parseISO(expiresAt));
 
-  if (!isActive && !isAdmin) return null;
-  if (!isVisible && !isAdmin) return null; // Admin always sees it to edit
+  if (!isAdmin && (!isActive || isExpired)) return null;
+  if (!isVisible && !isAdmin) return null;
 
   return (
     <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-2 flex items-center justify-between shadow-lg relative z-[60]">
       <div className="flex items-center gap-3 flex-1">
-        <Megaphone className="fill-white text-indigo-600" size={20} />
+        <Megaphone className="fill-white text-indigo-600 shrink-0" size={20} />
         {isEditing ? (
-            <input 
-                type="text" 
-                value={editValue} 
-                onChange={(e) => setEditValue(e.target.value)}
-                className="bg-white/20 border border-white/30 rounded px-2 py-1 text-sm text-white placeholder-white/50 focus:outline-none w-full max-w-xl"
-                placeholder="Enter announcement..."
-            />
+            <div className="flex flex-col sm:flex-row gap-2 w-full">
+                <input 
+                    type="text" 
+                    value={editValue} 
+                    onChange={(e) => setEditValue(e.target.value)}
+                    className="bg-white/20 border border-white/30 rounded px-2 py-1 text-sm text-white placeholder-white/50 focus:outline-none flex-1"
+                    placeholder="Enter announcement..."
+                />
+                <select 
+                    value={duration} 
+                    onChange={(e) => setDuration(e.target.value)}
+                    className="bg-white/20 border border-white/30 rounded px-2 py-1 text-sm text-white focus:outline-none"
+                >
+                    <option value="1h" className="text-black">1 Hour</option>
+                    <option value="24h" className="text-black">24 Hours</option>
+                    <option value="7d" className="text-black">7 Days</option>
+                    <option value="forever" className="text-black">Forever</option>
+                </select>
+            </div>
         ) : (
-            <span className="font-medium text-sm drop-shadow-md">
+            <span className="font-medium text-sm drop-shadow-md flex items-center gap-2">
                 {message || "No announcement set."}
-                {!isActive && isAdmin && <span className="ml-2 text-xs bg-black/30 px-2 py-0.5 rounded text-white/70">(Hidden from users)</span>}
+                {isAdmin && (
+                    <>
+                        {!isActive && <span className="text-[10px] bg-red-500/50 px-1.5 py-0.5 rounded border border-red-400/50">Disabled</span>}
+                        {isExpired && <span className="text-[10px] bg-orange-500/50 px-1.5 py-0.5 rounded border border-orange-400/50">Expired</span>}
+                    </>
+                )}
             </span>
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 ml-4">
         {isAdmin && !isEditing && (
             <button 
                 onClick={() => { setIsEditing(true); setEditValue(message); }} 
@@ -93,10 +129,10 @@ export const AnnouncementBar: React.FC<Props> = ({ isAdmin }) => {
         
         {isAdmin && isEditing && (
             <>
-                <button onClick={handleSave} className="p-1.5 bg-green-500/80 hover:bg-green-500 rounded-lg transition-colors" title="Save">
+                <button onClick={handleSave} className="p-1.5 bg-green-500/80 hover:bg-green-500 rounded-lg transition-colors" title="Save & Publish">
                     <Save size={16} />
                 </button>
-                <button onClick={handleDisable} className="p-1.5 bg-red-500/80 hover:bg-red-500 rounded-lg transition-colors" title="Disable/Delete">
+                <button onClick={handleDisable} className="p-1.5 bg-red-500/80 hover:bg-red-500 rounded-lg transition-colors" title="Delete/Disable">
                     <Trash size={16} />
                 </button>
                 <button onClick={() => setIsEditing(false)} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors" title="Cancel">
@@ -106,7 +142,7 @@ export const AnnouncementBar: React.FC<Props> = ({ isAdmin }) => {
         )}
 
         {!isEditing && (
-            <button onClick={handleClose} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
+            <button onClick={() => setIsVisible(false)} className="p-1.5 hover:bg-white/20 rounded-lg transition-colors">
                 <X size={18} />
             </button>
         )}
